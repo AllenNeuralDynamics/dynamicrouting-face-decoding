@@ -541,7 +541,7 @@ def wrap_decoder_helper(
                             crossval_index=None,
                             labels_as_index=params.labels_as_index,
                             train_test_split_input=None,
-                            regularization=params.regularization,
+                            regularization=reg_value,
                             penalty=params.penalty,
                             solver=params.solver,
                             n_jobs=None,
