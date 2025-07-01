@@ -612,7 +612,8 @@ def wrap_decoder_helper(
             break
 
     with lock or contextlib.nullcontext():
-        logger.info("Writing data")
+        path = (params.data_path / f"{uuid.uuid4()}.parquet").as_posix()
+        logger.info(f"Writing data to {path}")
         (
             pl.DataFrame(results)
             .with_columns(
@@ -632,8 +633,8 @@ def wrap_decoder_helper(
                 }
             )
             .write_parquet(
-                (params.data_path / f"{uuid.uuid4()}.parquet").as_posix(),
-                compression_level=18,
+                path,
+                compression_level=18,   
                 statistics="full",
             )
             # .write_delta(params.data_path.as_posix(), mode='append')
