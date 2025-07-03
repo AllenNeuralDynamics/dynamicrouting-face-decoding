@@ -460,30 +460,40 @@ def wrap_decoder_helper(
     for interval_config in params.feature_interval_configs:
         for start, stop in interval_config.intervals:
 
-            event_times = trials.select(
-                start=pl.col(interval_config.event_column_name) + start,
-                stop=pl.col(interval_config.event_column_name) + stop,
+            interval_trials = (
+                trials
+                .with_columns(
+                    start=pl.col(interval_config.event_column_name) + start,
+                    stop=pl.col(interval_config.event_column_name) + stop,
+                )
+                # if start or stop contain nulls the searchsorted below will fail: remove these
+                # trials (which don't have any data anyway)
+                .filter(
+                    pl.col('start').is_not_null(),
+                    pl.col('stop').is_not_null(),
+                )
             )
+                
             
             binned_features = []
-            for a, b in zip(event_times["start"], event_times["stop"]):
+            for a, b in zip(interval_trials["start"], interval_trials["stop"]):
                 start_index = np.searchsorted(timestamps, a, side="left")
                 stop_index = np.searchsorted(timestamps, b, side="right") 
                 binned_features.append(
                     np.nanmedian(feature_timeseries[start_index:stop_index, :], axis=0)
                 )
             feature_array = np.array(binned_features) # shape (n_trials, n_features)
-            assert feature_array.shape == (len(trials), len(feature_config.features)), f"{feature_array.shape=} != {len(trials)=}, {len(feature_config.features)=}"
+            assert feature_array.shape == (len(interval_trials), len(feature_config.features)), f"{feature_array.shape=} != {len(interval_trials)=}, {len(feature_config.features)=}"
             assert ~np.any(np.isnan(feature_array)), f"{session_id} | NaN values in {feature_config.model_label} feature array for {interval_config.event_column_name}"
             logger.debug(f"Got feature array: {feature_array.shape}")
 
-            context_labels = trials["rewarded_modality"].to_numpy().squeeze()
+            context_labels = interval_trials["rewarded_modality"].to_numpy().squeeze()
 
             max_neg_shift = math.ceil(
-                len(trials.filter(pl.col("block_index") == 0)) / 2
+                len(interval_trials.filter(pl.col("block_index") == 0)) / 2
             )
             max_pos_shift = math.floor(
-                len(trials.filter(pl.col("block_index") == 5)) / 2
+                len(interval_trials.filter(pl.col("block_index") == 5)) / 2
             )
             shifts = tuple(range(-max_neg_shift, max_pos_shift + 1))
             logger.debug(f"Using shifts from {shifts[0]} to {shifts[-1]}")
@@ -507,9 +517,9 @@ def wrap_decoder_helper(
                     else:
                         labels = context_labels[max_neg_shift:-max_pos_shift]
                         first_trial_index = max_neg_shift + shift
-                        last_trial_index = len(trials) - max_pos_shift + shift
+                        last_trial_index = len(interval_trials) - max_pos_shift + shift
                         logger.debug(
-                            f"Shift {shift}: using trials {first_trial_index} to {last_trial_index} out of {len(trials)}"
+                            f"Shift {shift}: using trials {first_trial_index} to {last_trial_index} out of {len(interval_trials)}"
                         )
                         assert first_trial_index >= 0, f"{first_trial_index=}"
                         assert (
@@ -586,9 +596,9 @@ def wrap_decoder_helper(
                         result["predict_proba"] = None
 
                     if is_all_trials:
-                        result["trial_indices"] = trials["trial_index"].to_list()
+                        result["trial_indices"] = interval_trials["trial_index"].to_list()
                     elif shift in (0, None):
-                        result["trial_indices"] = trials["trial_index"].to_list()[
+                        result["trial_indices"] = interval_trials["trial_index"].to_list()[
                             first_trial_index:last_trial_index
                         ]
                     else:
